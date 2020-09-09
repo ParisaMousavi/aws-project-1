@@ -1,0 +1,1225 @@
+# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License").
+# You may not use this file except in compliance with the License.
+# A copy of the License is located at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# or in the "license" file accompanying this file. This file is distributed
+# on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+# express or implied. See the License for the specific language governing
+# permissions and limitations under the License.
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: (SO0086) - The Multi Region Infrastructure Deployment Solution validates and deploys CloudFormation templates to stage and prod environments across AWS Regions (Version v1.1.0)
+
+Parameters:
+  NotificationEmailAddress:
+    Type: String
+    Description: (Optional) Change and drift detection notification E-mail Address
+    AllowedPattern: "^$|^[_A-Za-z0-9-\\+]+(\\.[_A-Za-z0-9-]+)*@[A-Za-z0-9-]+(\\.[A-Za-z0-9]+)*(\\.[A-Za-z]{2,})$"
+
+  SolutionSecretName:
+    Type: String
+    Description: AWS Secrets Manager name
+  GitHubRepo:
+    Type: String
+    Description: GitHub repository name
+  GitHubBranch:
+    Type: String
+    Description: e.g., mainline
+
+  SecondaryRegion:
+    Type: String
+    Description: Specified in the standard format, e.g., us-east-1, us-west-2, etc...
+
+  TemplatePath:
+    Type: String
+    Description: Specified from the root of the Git repository, e.g., templates/my_template.yaml
+
+  CloudFormationExecutionPolicy:
+    Type: String
+    Description: The ARN of the IAM Policy used to allow CloudFormation to create/execute change sets. Create an IAM Policy specific to administering the resources that will be provisioned by the CloudFormation Template in the GitHub repository.
+
+  StageParameters:
+    Type: String
+    Description: CloudFormation Template Parameters Application's Stack. Leave this field blank if the CloudFormation template specified in the TemplatePath parameter has no parameters.
+    Default: ''
+
+  SecondaryParameters:
+    Type: String
+    Description: CloudFormation Template Parameters Application's Stack. Leave this field blank if the CloudFormation template specified in the TemplatePath parameter has no parameters.
+    Default: ''
+
+  PrimaryParameters:
+    Type: String
+    Description: CloudFormation Template Parameters Application's Stack. Leave this field blank if the CloudFormation template specified in the TemplatePath parameter has no parameters.
+    Default: ''
+
+  DeleteStageStack:
+    Type: String
+    Description: Deleting stage stack after approval to deploy production stacks
+    Default: "Yes"
+    AllowedValues:
+      - "Yes"
+      - "No"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Notification
+        Parameters:
+          - NotificationEmailAddress
+      - Label:
+          default: GitHub Repository Configuration
+        Parameters:
+          - SolutionSecretName
+          - GitHubRepo
+          - GitHubBranch
+          - TemplatePath
+      - Label:
+          default: Application Stack Parameters
+        Parameters:
+          - StageParameters
+          - PrimaryParameters
+          - SecondaryParameters
+      - Label:
+          default: Deployment Configuration
+        Parameters:
+          - DeleteStageStack
+          - CloudFormationExecutionPolicy
+          - SecondaryRegion
+    ParameterLabels:
+      NotificationEmailAddress:
+        default: E-Mail to notify changes to approve and drift detection
+      SolutionSecretName:
+        default: Name of the AWS Secrets Manager secret that stores the GitHub Username and Personal Access Token to access the repository
+      GitHubRepo:
+        default: Name of the GitHub repository that should trigger the pipeline
+      GitHubBranch:
+        default: Name of the branch in the above repository that should trigger the pipeline
+      TemplatePath:
+        default: Path to the CloudFormation template in the above repository
+      StageParameters:
+        default: Stage Stack (Primary Region) Parameters
+      PrimaryParameters:
+        default: Primary Region Parameters
+      SecondaryParameters:
+        default: Secondary Region Parameters
+      SecondaryRegion:
+        default: The Secondary Region the application's CloudFormation template should be deployed to
+      CloudFormationExecutionPolicy:
+        default: CloudFormation Execution Policy ARN
+      DeleteStageStack:
+        default: Deleting stage stack after approval to deploy production stacks
+
+Conditions:
+  HasNotificationEmailAddress: !Not [ !Equals [ !Ref NotificationEmailAddress, '' ] ]
+  HasStageParameters: !Not [ !Equals [ !Ref StageParameters, '' ] ]
+  HasSecondaryParameters: !Not [ !Equals [ !Ref SecondaryParameters, '' ] ]
+  HasPrimaryParameters: !Not [ !Equals [ !Ref PrimaryParameters, '' ] ]
+  DeletingStage: !Equals [ !Ref DeleteStageStack, 'Yes' ]
+
+Mappings:
+  SourceCode:
+    General:
+      S3Bucket: solutions
+      KeyPrefix: multi-region-infrastructure-deployment/v1.1.0
+  Solution:
+    Metrics:
+      SendAnonymousData: Yes
+  StageArtifact:
+    Name:
+      ChangeSet: Multi-Region-Stage-ChangeSet
+      Source: StageArtifact-Source
+      Parameter: StageArtifact-Parameter
+    Parameter:
+      Source: source-artifact
+      Parameter: parameter-artifact
+
+Resources:
+  PrimaryArtifactStore:
+    Type: AWS::S3::Bucket
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W51
+            reason: Policy not required for this bucket
+    DeletionPolicy: Retain
+    Properties:
+      LoggingConfiguration:
+        DestinationBucketName: !Ref PrimaryLogsBucket
+        LogFilePrefix: primary-artifact-store-access/
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: aws:kms
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+
+  PrimaryLogsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W35
+            reason: This is the destination logging bucket for S3 buckets in this solution
+          - id: W51
+            reason: Policy not required for this bucket
+    Properties:
+      AccessControl: LogDeliveryWrite
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: aws:kms
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          Effect: Allow
+          Action:
+            - 'sts:AssumeRole'
+          Principal:
+            Service:
+              - cloudformation.amazonaws.com
+      Path: /
+      ManagedPolicyArns:
+        - !Ref CloudFormationExecutionPolicy
+
+  InfraPipelineRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: cloudformation:ValidateTemplate - requires * resource
+          - id: W76
+            reason: SPCM > 25 - All permissions are required
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                Resource:
+                  - !Sub arn:aws:s3:::${PrimaryArtifactStore}/*
+                  - !Sub arn:aws:s3:::${SecondaryBucketCreator.BucketName}/*
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource:
+                  - !Sub arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/*
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DeleteStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:SetStackPolicy
+                Resource:
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:*
+                  - !Sub arn:aws:cloudformation:${SecondaryRegion}:${AWS::AccountId}:*
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt CloudFormationExecutionRole.Arn
+              - Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt ChangeSetValidatorLambda.Arn
+                  - !GetAtt DriftDetectionLambda.Arn
+                  - !GetAtt StageArtifactSsmLambda.Arn
+                  - !If
+                    - DeletingStage
+                    - !GetAtt CreateStageArtifactLambda.Arn
+                    - !Ref AWS::NoValue
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !Ref NotificationSnsTopic
+
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: cloudformation:ValidateTemplate - requires * resource
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:GetObjectVersion
+                Resource:
+                  - !Sub arn:aws:s3:::${PrimaryArtifactStore}/*
+                  - !Sub arn:aws:s3:::${SecondaryBucketCreator.BucketName}/*
+              - Effect: Allow
+                Action:
+                  - cloudformation:ValidateTemplate
+                Resource: '*'
+
+  NotificationSnsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Multi-region Infrastructure Deployment Notification
+      KmsMasterKeyId: alias/aws/sns
+
+  NotificationSnsSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasNotificationEmailAddress
+    Properties:
+      TopicArn: !Ref NotificationSnsTopic
+      Endpoint: !Ref NotificationEmailAddress
+      Protocol: email
+
+  InfraPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStores:
+        - Region: !Ref AWS::Region
+          ArtifactStore:
+            Type: S3
+            Location: !Ref PrimaryArtifactStore
+        - Region: !Ref SecondaryRegion
+          ArtifactStore:
+            Type: S3
+            Location: !GetAtt SecondaryBucketCreator.BucketName
+      RoleArn: !GetAtt InfraPipelineRole.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHub
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: '1'
+                Provider: GitHub
+              Configuration:
+                Owner: !Sub '{{resolve:secretsmanager:${SolutionSecretName}:SecretString:github-username}}'
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Sub '{{resolve:secretsmanager:${SolutionSecretName}:SecretString:github-access-token}}'
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: Source
+        - !If
+          - DeletingStage
+          - Name: !Sub InitializeStage-${AWS::Region}
+            Actions:
+              - Name: CreateStageArtifact
+                ActionTypeId:
+                  Category: Invoke
+                  Owner: AWS
+                  Provider: Lambda
+                  Version: '1'
+                Configuration:
+                  FunctionName: !Ref CreateStageArtifactLambda
+                InputArtifacts:
+                  - Name: Source
+                OutputArtifacts:
+                  - Name: StageArtifact-Source
+                  - Name: StageArtifact-Parameter
+                RunOrder: 1
+                Region: !Ref AWS::Region
+
+              - Name: Deploy
+                ActionTypeId:
+                  Category: Deploy
+                  Owner: AWS
+                  Provider: CloudFormation
+                  Version: '1'
+                Configuration:
+                  ActionMode: CREATE_UPDATE
+                  RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                  StackName: !Sub ${AWS::StackName}-Stack-Stage-${AWS::Region}
+                  TemplatePath: !Sub StageArtifact-Source::${TemplatePath}
+                  TemplateConfiguration: StageArtifact-Parameter::parameters.json
+                  Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                InputArtifacts:
+                  - Name: StageArtifact-Source
+                  - Name: StageArtifact-Parameter
+                RunOrder: 2
+                Region: !Ref AWS::Region
+          - !Ref AWS::NoValue
+
+        - Name: CheckChanges
+          Actions:
+            - Name: CreateChangeSet
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: CHANGE_SET_REPLACE
+                RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                StackName: !Sub ${AWS::StackName}-Stack-Stage-${AWS::Region}
+                ChangeSetName: !FindInMap ["StageArtifact", "Name", "ChangeSet"]
+                TemplatePath: !Sub Source::${TemplatePath}
+                Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                ParameterOverrides: !If [ HasStageParameters, !Ref StageParameters, !Ref "AWS::NoValue" ]
+              InputArtifacts:
+                - Name: Source
+              OutputArtifacts:
+                - Name: !FindInMap ["StageArtifact", "Name", "ChangeSet"]
+              RunOrder: 1
+              Region: !Ref AWS::Region
+
+            - Name: CheckChangeSetForChanges
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Provider: Lambda
+                Version: '1'
+              Configuration:
+                FunctionName: !Ref ChangeSetValidatorLambda
+              InputArtifacts:
+                - Name: !FindInMap ["StageArtifact", "Name", "ChangeSet"]
+              RunOrder: 2
+              Region: !Ref AWS::Region
+
+        - Name: ValidateTemplates
+          Actions:
+            - Name: CfnNag
+              InputArtifacts:
+                - Name: Source
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: '1'
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref CfnNagBuildProject
+              OutputArtifacts:
+                - Name: CfnNagOutput
+              RunOrder: 1
+
+            - Name: CfnLint
+              InputArtifacts:
+                - Name: Source
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: '1'
+                Provider: CodeBuild
+              Configuration:
+                ProjectName: !Ref CfnLintBuildProject
+              OutputArtifacts:
+                - Name: CfnLintOutput
+              RunOrder: 2
+
+        - Name: !Sub Stage-${AWS::Region}
+          Actions:
+            - !If
+              - DeletingStage
+              - Name: CreateUpdate
+                ActionTypeId:
+                  Category: Deploy
+                  Owner: AWS
+                  Provider: CloudFormation
+                  Version: '1'
+                Configuration:
+                  ActionMode: CREATE_UPDATE
+                  RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                  StackName: !Sub ${AWS::StackName}-Stack-Stage-${AWS::Region}
+                  TemplatePath: !Sub Source::${TemplatePath}
+                  Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                  ParameterOverrides: !If [ HasStageParameters, !Ref StageParameters, !Ref "AWS::NoValue" ]
+                InputArtifacts:
+                  - Name: Source
+                RunOrder: 1
+                Region: !Ref AWS::Region
+              - Name: ExecuteChangeSet
+                ActionTypeId:
+                  Category: Deploy
+                  Owner: AWS
+                  Provider: CloudFormation
+                  Version: '1'
+                Configuration:
+                  ActionMode: CHANGE_SET_EXECUTE
+                  RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                  StackName: !Sub ${AWS::StackName}-Stack-Stage-${AWS::Region}
+                  ChangeSetName: !FindInMap ["StageArtifact", "Name", "ChangeSet"]
+                OutputArtifacts:
+                  - Name: !Sub ${AWS::StackName}-ExecutedChangeSet-Stage-${AWS::Region}
+                RunOrder: 1
+                Region: !Ref AWS::Region
+
+            - Name: DriftDetection
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Provider: Lambda
+                Version: '1'
+              Configuration:
+                FunctionName: !Ref DriftDetectionLambda
+              InputArtifacts:
+                - Name: Source
+              RunOrder: 2
+              Region: !Ref AWS::Region
+
+            - Name: ApproveChangeSet
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: '1'
+              Configuration:
+                NotificationArn: !Ref NotificationSnsTopic
+                CustomData: "Do you want to approve to deploy the changes to production stacks?"
+              RunOrder: 3
+              Region: !Ref AWS::Region
+
+            - !If
+              - DeletingStage
+              - Name: DeleteStageStack
+                ActionTypeId:
+                  Category: Deploy
+                  Owner: AWS
+                  Provider: CloudFormation
+                  Version: '1'
+                Configuration:
+                  ActionMode: DELETE_ONLY
+                  RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                  StackName: !Sub ${AWS::StackName}-Stack-Stage-${AWS::Region}
+                RunOrder: 4
+                Region: !Ref AWS::Region
+              - !Ref AWS::NoValue
+
+            - Name: PutStageArtifact
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Provider: Lambda
+                Version: '1'
+              Configuration:
+                FunctionName: !Ref StageArtifactSsmLambda
+              InputArtifacts:
+                - Name: Source
+              RunOrder: !If [ DeletingStage, 5, 4 ]
+              Region: !Ref AWS::Region
+
+        - Name: !Sub Secondary-${SecondaryRegion}
+          Actions:
+            - Name: CreateUpdate
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                StackName: !Sub ${AWS::StackName}-Stack-Secondary-${SecondaryRegion}
+                TemplatePath: !Sub Source::${TemplatePath}
+                Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                ParameterOverrides: !If [ HasSecondaryParameters, !Ref SecondaryParameters, !Ref "AWS::NoValue" ]
+              InputArtifacts:
+                - Name: Source
+              RunOrder: 1
+              Region: !Ref SecondaryRegion
+
+        - Name: !Sub PrimaryProd-${AWS::Region}
+          Actions:
+            - Name: CreateUpdate
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                RoleArn: !GetAtt CloudFormationExecutionRole.Arn
+                StackName: !Sub ${AWS::StackName}-Stack-PrimaryProd-${AWS::Region}
+                TemplatePath: !Sub Source::${TemplatePath}
+                Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND
+                ParameterOverrides: !If [ HasPrimaryParameters, !Ref PrimaryParameters, !Ref "AWS::NoValue" ]
+              InputArtifacts:
+                - Name: Source
+              RunOrder: 1
+              Region: !Ref AWS::Region
+
+  InfraPipelineWebhook:
+    Type: AWS::CodePipeline::Webhook
+    Properties:
+      Authentication: GITHUB_HMAC
+      AuthenticationConfiguration:
+        SecretToken: !Sub '{{resolve:secretsmanager:${SolutionSecretName}:SecretString:github-access-token}}'
+      Filters:
+        - JsonPath: "$.ref"
+          MatchEquals: refs/heads/{Branch}
+      TargetPipeline: !Ref InfraPipeline
+      TargetAction: GitHub
+      Name: !Sub ${AWS::StackName}-AppPipelineWebhook
+      TargetPipelineVersion: !GetAtt InfraPipeline.Version
+      RegisterWithThirdParty: true
+
+  CfnNagBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                ruby: latest
+              commands:
+                - |
+                  if [ $RUNNING_CFN_NAG = 'Yes' ]; then
+                    echo Installing cfn_nag - `pwd`
+                    gem install -V cfn-nag
+                    cfn_nag -v
+                    echo cfn_nag installation complete `date`
+                  fi
+            build:
+              commands:
+                - |
+                  if [ $RUNNING_CFN_NAG = 'Yes' ]; then
+                    echo Starting cfn_nag scanning `date` in `pwd`
+                    cfn_nag --fail-on-warnings $TEMPLATE_PATH || ec=$?
+                    if [ "$ec" -ne "0" ]; then ec=1; else ec=0; fi
+                    echo Completed cfn_nag scanning `date`
+                    exit $ec
+                  fi
+          artifacts:
+            files: '*'
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:4.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: TEMPLATE_PATH
+            Value: !Ref TemplatePath
+          - Name: RUNNING_CFN_NAG
+            Value: "Yes"
+      ServiceRole: !Ref CodeBuildServiceRole
+      EncryptionKey: !Sub arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/s3
+
+  CfnLintBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                python: latest
+              commands:
+                - |
+                  if [ $RUNNING_CFN_LINT = 'Yes' ]; then
+                    echo Installing cfn-lint - `pwd`
+                    pip install cfn-lint
+                    cfn-lint -v
+                    echo cfn-lint installation complete `date`
+                  fi
+            build:
+              commands:
+                - |
+                  if [ $RUNNING_CFN_LINT = 'Yes' ]; then
+                    echo Starting cfn-lint validation of template $TEMPLATE_PATH for regions $PRIMARY_REGION and $SECONDARY_REGION at `date` in `pwd`
+                    cfn-lint --template $TEMPLATE_PATH --regions $PRIMARY_REGION $SECONDARY_REGION || ec=$?
+                    echo Completed cfn-lint validation `date`
+                    if [ "$ec" -ne "0" ]; then ec=1; else ec=0; fi
+                    exit $ec
+                  fi
+          artifacts:
+            files: '*'
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:4.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: PRIMARY_REGION
+            Value: !Ref AWS::Region
+          - Name: SECONDARY_REGION
+            Value: !Ref SecondaryRegion
+          - Name: TEMPLATE_PATH
+            Value: !Ref TemplatePath
+          - Name: RUNNING_CFN_LINT
+            Value: "Yes"
+      ServiceRole: !Ref CodeBuildServiceRole
+      EncryptionKey: !Sub arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/aws/s3
+
+  UuidGeneratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-StackNameFormatterRole
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/*
+
+  UuidGeneratorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt UuidGeneratorRole.Arn
+      Code:
+        S3Bucket: !Join ["-", [!FindInMap ["SourceCode", "General", "S3Bucket"], Ref: "AWS::Region"]]
+        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "uuid-generator.zip"]]
+      Runtime:  nodejs12.x
+      Timeout: 30
+
+  UuidGenerator:
+    Type: Custom::UuidGenerator
+    Properties:
+      ServiceToken: !GetAtt UuidGeneratorLambda.Arn
+
+  SecondaryBucketCreatorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Lambda Custom Resource used to create a CodePipeline Artifact Store S3 bucket in a secondary region
+      Handler: index.handler
+      Role: !GetAtt SecondaryBucketCreatorRole.Arn
+      Code:
+        S3Bucket: !Join ["-", [!FindInMap ["SourceCode", "General", "S3Bucket"], Ref: "AWS::Region"]]
+        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "secondary-bucket-creator.zip"]]
+      Runtime:  nodejs12.x
+      Timeout: 120
+
+  SecondaryBucketCreator:
+    Type: Custom::ArtifactStoreCreatorCustomResource
+    Properties:
+      ServiceToken: !GetAtt SecondaryBucketCreatorLambda.Arn
+      PrimaryBucketName: !Ref PrimaryArtifactStore
+      SecondaryRegion: !Ref SecondaryRegion
+
+  SecondaryBucketCreatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: SecondaryBucketCreatorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*
+              - Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutBucketAcl
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketLogging
+                Resource:
+                  - arn:aws:s3:::* # We don't know the name or prefix of the bucket to be created at this point
+
+  ChangeSetValidatorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Validates that a CloudFormation ChangeSet contains changes before pushing it through the rest of the CodePipeline
+      Handler: index.handler
+      Role: !GetAtt ChangeSetValidatorLambdaRole.Arn
+      Code:
+        S3Bucket: !Join ["-", [!FindInMap ["SourceCode", "General", "S3Bucket"], Ref: "AWS::Region"]]
+        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "changeset-validator.zip"]]
+      Runtime: nodejs12.x
+      Timeout: 180
+      Environment:
+        Variables:
+          STACK_NAME: !Sub ${AWS::StackName}-Stack-Stage-${AWS::Region}
+          REGION: !Ref AWS::Region
+          SOLUTION_ID: SO0086
+          UUID: !GetAtt UuidGenerator.Value
+          VERSION: v1.1.0
+          ARTIFACT_SOURCE: !Join ["", ["/", !Ref "AWS::StackName", "/", !FindInMap ["StageArtifact", "Parameter", "Source"]]]
+          DELETE_STAGE_STACK: !Ref DeleteStageStack
+          SEND_METRICS: !FindInMap ["Solution" ,"Metrics" ,"SendAnonymousData"]
+
+  ChangeSetValidatorLambdaRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: >-
+              codepipeline:PutJobFailureResult/PutJobSuccessResult - requires * resource
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-ChangeSetValidatorLambdaRole-CustomPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeChangeSet
+                Resource:
+                  - arn:aws:cloudformation:*:*:stack/*/*
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobFailureResult
+                  - codepipeline:PutJobSuccessResult
+                Resource:
+                  - "*"
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Join ["/", [!Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}", !FindInMap ["StageArtifact", "Parameter", "Source"]]]
+
+  CreateStageArtifactLambda:
+    Type: AWS::Lambda::Function
+    Condition: DeletingStage
+    Properties:
+      Description: Creates the stage artifact to prepare the previous version of the prod stack
+      Handler: index.handler
+      Role: !GetAtt CreateStageArtifactLambdaRole.Arn
+      Code:
+        S3Bucket: !Join ["-", [!FindInMap ["SourceCode", "General", "S3Bucket"], Ref: "AWS::Region"]]
+        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "stage-artifact-creator.zip"]]
+      Runtime: nodejs12.x
+      Timeout: 120
+      Environment:
+        Variables:
+          STACK_NAME: !Ref AWS::StackName
+          ARTIFACT_SOURCE: !Join ["", ["/", !Ref "AWS::StackName", "/", !FindInMap ["StageArtifact", "Parameter", "Source"]]]
+          ARTIFACT_PARAMETER: !Join ["", ["/", !Ref "AWS::StackName", "/", !FindInMap ["StageArtifact", "Parameter", "Parameter"]]]
+          ARTIFACT_SOURCE_NAME: !FindInMap ["StageArtifact", "Name", "Source"]
+          ARTIFACT_PARAMETER_NAME: !FindInMap ["StageArtifact", "Name", "Parameter"]
+
+  CreateStageArtifactLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: DeletingStage
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: codepipeline:PutJobFailureResult/PutJobSuccessResult - requires * resource
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-CreateStageArtifactLambdaRole-CustomPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:aws:s3:::${PrimaryArtifactStore}/*
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource:
+                  - !Sub arn:aws:s3:::${PrimaryArtifactStore}
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Join ["/", [!Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}", !FindInMap ["StageArtifact", "Parameter", "Source"]]]
+                  - !Join ["/", [!Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}", !FindInMap ["StageArtifact", "Parameter", "Parameter"]]]
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                Resource:
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobFailureResult
+                  - codepipeline:PutJobSuccessResult
+                Resource:
+                  - "*"
+
+  StageArtifactSsmLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Puts the stage artifact to SSM parameter store
+      Handler: index.handler
+      Role: !GetAtt StageArtifactSsmLambdaRole.Arn
+      Code:
+        S3Bucket: !Join ["-", [!FindInMap ["SourceCode", "General", "S3Bucket"], Ref: "AWS::Region"]]
+        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "stage-artifact-putter.zip"]]
+      Runtime: nodejs12.x
+      Timeout: 60
+      Environment:
+        Variables:
+          ARTIFACT_SOURCE: !Join ["", ["/", !Ref "AWS::StackName", "/", !FindInMap ["StageArtifact", "Parameter", "Source"]]]
+          ARTIFACT_PARAMETER: !Join ["", ["/", !Ref "AWS::StackName", "/", !FindInMap ["StageArtifact", "Parameter", "Parameter"]]]
+          CLOUDFORMATION_PARAMETERS: !If [ HasStageParameters, !Ref StageParameters, !Ref "AWS::NoValue" ]
+
+  StageArtifactSsmLambdaRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: codepipeline:PutJobFailureResult/PutJobSuccessResult - requires * resource
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-StageArtifactSsmLambdaRole-CustomPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*
+              - Effect: Allow
+                Action:
+                  - ssm:PutParameter
+                Resource:
+                  - !Join ["/", [!Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}", !FindInMap ["StageArtifact", "Parameter", "Source"]]]
+                  - !Join ["/", [!Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}", !FindInMap ["StageArtifact", "Parameter", "Parameter"]]]
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobFailureResult
+                  - codepipeline:PutJobSuccessResult
+                Resource:
+                  - "*"
+
+  DriftDetectionLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Detects drift on primary and secondary stacks
+      Handler: index.handler
+      Role: !GetAtt DriftDetectionLambdaRole.Arn
+      Code:
+        S3Bucket: !Join ["-", [!FindInMap ["SourceCode", "General", "S3Bucket"], Ref: "AWS::Region"]]
+        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "drift-detection.zip"]]
+      Runtime: nodejs12.x
+      Timeout: 900
+      Environment:
+        Variables:
+          PRIMARY_STACK: !Sub ${AWS::StackName}-Stack-PrimaryProd-${AWS::Region}
+          REGION: !Ref AWS::Region
+          SECONDARY_STACK: !Sub ${AWS::StackName}-Stack-Secondary-${SecondaryRegion}
+          SECONDARY_REGION: !Ref SecondaryRegion
+          NOTIFICATION_SNS_ARN: !Ref NotificationSnsTopic
+
+  DriftDetectionLambdaRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: >-
+              cloudformation:DescribeStackDriftDetectionStatus - requires * resource
+              codepipeline:PutJobFailureResult/PutJobSuccessResult - requires * resource
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-StageArtifactSsmLambdaRole-CustomPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource:
+                  - !Ref NotificationSnsTopic
+              - Effect: Allow
+                Action:
+                  - cloudformation:DetectStackDrift
+                  - cloudformation:DetectStackResourceDrift
+                  - cloudformation:ListStackResources
+                Resource:
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-Stack-PrimaryProd-${AWS::Region}/*
+                  - !Sub arn:aws:cloudformation:${SecondaryRegion}:${AWS::AccountId}:stack/${AWS::StackName}-Stack-Secondary-${SecondaryRegion}/*
+              - Effect: Allow
+                Action:
+                  - cloudformation:DescribeStackDriftDetectionStatus
+                Resource:
+                  - "*"
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobFailureResult
+                  - codepipeline:PutJobSuccessResult
+                Resource:
+                  - "*"
+
+  RollbackChangeLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Rolls back the changes of stage stack
+      Handler: index.handler
+      Role: !GetAtt RollbackChangeLambdaRole.Arn
+      Code:
+        S3Bucket: !Join ["-", [!FindInMap ["SourceCode", "General", "S3Bucket"], Ref: "AWS::Region"]]
+        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "rollback-change.zip"]]
+      Runtime:  nodejs12.x
+      Timeout: 60
+      Environment:
+        Variables:
+          STAGE_STACK_NAME: !Sub ${AWS::StackName}-Stack-Stage-${AWS::Region}
+          PIPELINE_NAME: !Ref InfraPipeline
+          STAGE_NAME: !Sub Stage-${AWS::Region}
+          ACTION_NAME: ApproveChangeSet
+          ARTIFACT_SOURCE: !Join ["", ["/", !Ref "AWS::StackName", "/", !FindInMap ["StageArtifact", "Parameter", "Source"]]]
+          ARTIFACT_PARAMETER: !Join ["", ["/", !Ref "AWS::StackName", "/", !FindInMap ["StageArtifact", "Parameter", "Parameter"]]]
+          DELETE_STAGE_STACK: !Ref DeleteStageStack
+          TEMPLATE_PATH: !Ref TemplatePath
+
+  RollbackChangeLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-StageArtifactSsmLambdaRole-CustomPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Join ["/", [!Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}", !FindInMap ["StageArtifact", "Parameter", "Source"]]]
+                  - !Join ["/", [!Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}", !FindInMap ["StageArtifact", "Parameter", "Parameter"]]]
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:aws:s3:::${PrimaryArtifactStore}/*
+              - Effect: Allow
+                Action:
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                Resource:
+                  - !Sub arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}-Stack-Stage-${AWS::Region}/*
+
+  RejectCloudWatchRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${AWS::StackName}-Reject-Rule-${AWS::Region}
+      Description: The rule to trigger rollback when the change is not approved
+      EventPattern: |
+        {
+          "source": [
+            "aws.codepipeline"
+          ],
+          "detail-type": [
+            "CodePipeline Action Execution State Change"
+          ],
+          "detail": {
+            "state": [
+              "FAILED"
+            ]
+          }
+        }
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt RollbackChangeLambda.Arn
+          Id: !Sub ${AWS::StackName}-Reject-Lambda-${AWS::Region}
+
+  RejectCloudWatchRuleLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt RollbackChangeLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt RejectCloudWatchRule.Arn
+
+  CustomResourceLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Custom Resource Lambda Function
+      Code:
+        S3Bucket: !Join ["-", [!FindInMap ["SourceCode", "General", "S3Bucket"], !Ref "AWS::Region"]]
+        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"], "custom-resource.zip"]]
+      Handler: index.handler
+      Role: !GetAtt CustomResourceRole.Arn
+      Runtime: nodejs12.x
+      Timeout: 60
+      MemorySize: 128
+
+  CustomResourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${AWS::StackName}-CustomResourceRole-CustomPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*
+
+  SendAnonymousUsage:
+    Type: Custom::SendAnonymousUsage
+    Properties:
+      ServiceToken: !GetAtt CustomResourceLambda.Arn
+      SOLUTION_ID: SO0086
+      UUID: !GetAtt UuidGenerator.Value
+      VERSION: v1.1.0
+      SEND_METRICS: !FindInMap ["Solution" ,"Metrics" ,"SendAnonymousData"]

@@ -1,0 +1,82 @@
+Description: AWS Project 1 - Creaet two VPC
+Mappings:
+  RegionVpcName:
+    "eu-central-1":
+      VpcName: "primary"
+    "eu-west-3":
+      VpcName: "Secondary"
+  RegionVpcCIDR:
+    "eu-central-1":
+      VpcCIDR: 10.1.0.0/16
+    "eu-west-3":
+      VpcCIDR: 10.2.0.0/16
+  RegionSubnetCIDR:
+    "eu-central-1":
+      SubnetCIDR: 10.1.20.0/24
+    "eu-west-3":
+      SubnetCIDR: 10.2.20.0/24
+Resources:
+  VPC1:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !FindInMap [ RegionVpcCIDR, !Ref "AWS::Region" , VpcCIDR ]
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+  InternetGateway1:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+  InternetGatewayAttachment1:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      InternetGatewayId: !Ref InternetGateway1
+      VpcId: !Ref VPC1
+  VpcSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC1
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs ''
+      CidrBlock: !FindInMap [ RegionSubnetCIDR, !Ref "AWS::Region", SubnetCIDR ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${!FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]} Public Subnet (${AZ1})'
+            - AZ1: !Select 
+                - 0
+                - !GetAZs ''
+  VpcRouteTable1:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub '${!FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]} Public Routes'
+  VpcIntternetRoute1:
+    Type: 'AWS::EC2::Route'
+    DependsOn: InternetGatewayAttachment1
+    Properties:
+      RouteTableId: !Ref VpcRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway1
+  SubnetRouteTableAssociation1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref VpcRouteTable1
+      SubnetId: !Ref VpcSubnet1
+
+
+Outputs:
+  VPC:
+    Description: Primary VPC ID
+    Value: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+  Subnet:
+    Description: Primary VPC Subnet ID
+    Value: !Ref VpcSubnet1

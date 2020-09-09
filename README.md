@@ -8,7 +8,18 @@
 
 **NOTE**: Be sure to use different CIDR address ranges for the VPCs.
 
+**Answer**
+The VPCs are creating via this Yaml template [link](vpc.yaml)
+The next figure represents the diagram of the Yaml template in AWS Designer.  
+![alt](drawio/vpcs-disgner-view.png)
 
+Sources
+* https://docs.aws.amazon.com/solutions/latest/multi-region-infrastructure-deployment/welcome.html
+* https://aws.amazon.com/solutions/implementations/multi-region-infrastructure-deployment/
+* https://www.youtube.com/watch?v=k9_9bDZa_EI
+* https://www.youtube.com/watch?v=3K9AzSrCmiQ
+* https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/what-is-cfnstacksets.html
+* https://www.youtube.com/watch?v=ZzD9I8ur6lg
 
 
 ### Highly durable RDS Database

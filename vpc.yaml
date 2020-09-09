@@ -9,9 +9,7 @@ Parameters:
     Type: String
     Default: 10.1.0.0/16
   PrimaryVPCSubnetCIDR:
-    Description: >-
-      Please enter the IP range (CIDR notation) for the subnet in the Primary
-      Region
+    Description: Please enter the IP range (CIDR notation) for the subnet in the Primary Region
     Type: String
     Default: 10.1.20.0/24
   SecondaryVpcName:
@@ -22,10 +20,8 @@ Parameters:
     Description: Please enter the IP range (CIDR notation) for the Secondary VPC
     Type: String
     Default: 10.2.0.0/16
-  SecondaryVPCSubnetCIDR:
-    Description: >-
-      Please enter the IP range (CIDR notation) for the subnet in the Secondary
-      Region
+  SecondaryVpcSubnetCIDR:
+    Description: Please enter the IP range (CIDR notation) for the subnet in the Secondary Region
     Type: String
     Default: 10.2.20.0/24
 Metadata:
@@ -42,7 +38,7 @@ Metadata:
         Parameters:
           - SecondaryVpcName
           - SecondaryVpcCIDR
-          - SecondaryVPCSubnetCIDR
+          - SecondaryVpcSubnetCIDR
     ParameterLabels:
       PrimaryVpcName:
         default: Primary VPC Name
@@ -54,7 +50,7 @@ Metadata:
         default: Secondary VPC CIDR block
       PrimaryVPCSubnetCIDR:
         default: Primary VPC Subnet CIDR block
-      SecondaryVPCSubnetCIDR:
+      SecondaryVpcSubnetCIDR:
         default: Secondary VPC Subnet CIDR block
 Resources:
   PrimaryVpc:
@@ -112,10 +108,74 @@ Resources:
     Properties:
       RouteTableId: !Ref PrimaryVpcRouteTable
       SubnetId: !Ref PrimaryVpcSubnet
+
+  SecondaryVpc:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !Ref SecondaryVpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref SecondaryVpcName
+  SecondaryVpcInternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref SecondaryVpcName
+  SecondaryVpcInternetGatewayAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      InternetGatewayId: !Ref SecondaryVpcInternetGateway
+      VpcId: !Ref SecondaryVpc
+  SecondaryVpcSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref SecondaryVpc
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs ''
+      CidrBlock: !Ref SecondaryVpcSubnetCIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - '${SecondaryVpcName} Public Subnet (${AZ1})'
+            - AZ1: !Select 
+                - 0
+                - !GetAZs ''
+  SecondaryVpcRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref SecondaryVpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${SecondaryVpcName} Public Routes'
+  SecondaryVpcIntternetRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn: SecondaryVpcInternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref SecondaryVpcRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref SecondaryVpcInternetGateway
+  SecondaryVpcSubnetRouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref SecondaryVpcRouteTable
+      SubnetId: !Ref SecondaryVpcSubnet
+
+      
 Outputs:
-  VPC:
+  PrimaryVPC:
     Description: Primary VPC ID
     Value: !Ref PrimaryVpc
-  Subnets:
+  SecondaryVPC:
+    Description: Secondary VPC ID
+    Value: !Ref SecondaryVpc
+  PrimaryVpcSubnet:
     Description: Primary VPC Subnet ID
     Value: !Ref PrimaryVpcSubnet
+  SecondaryVpcSubnet:
+    Description: Secondary VPC Subnet ID
+    Value: !Ref SecondaryVpcSubnet
