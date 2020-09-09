@@ -1,4 +1,4 @@
-<mxfile modified="2020-09-09T07:16:12.516Z" host="app.diagrams.net" agent="5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36" etag="l8sCt4iL9QO425hJFYh2" version="13.6.9" type="github">
+<mxfile modified="2020-09-09T07:19:42.363Z" host="app.diagrams.net" agent="5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36" etag="fLvRQSTFeSUaLtBD2FMb" version="13.6.9" type="github">
   <diagram id="Ht1M8jgEwFfnCIfOTk4-" name="Page-1">
     <mxGraphModel dx="1038" dy="548" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
       <root>
@@ -31,15 +31,13 @@
         <mxCell id="5UoT496pi2sTwq1zgijK-17" value="Global table" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;strokeColor=#FF9933;strokeWidth=4;" edge="1" parent="1" source="5UoT496pi2sTwq1zgijK-18" target="5UoT496pi2sTwq1zgijK-19">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="739" y="337" />
-              <mxPoint x="920" y="337" />
+              <mxPoint x="920" y="320" />
               <mxPoint x="920" y="550" />
-              <mxPoint x="734" y="550" />
             </Array>
           </mxGeometry>
         </mxCell>
         <mxCell id="5UoT496pi2sTwq1zgijK-18" value="Amazon DynamoDB" style="outlineConnect=0;fontColor=#232F3E;gradientColor=#4D72F3;gradientDirection=north;fillColor=#3334B9;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;" vertex="1" parent="1">
-          <mxGeometry x="695" y="297.5" width="78" height="78" as="geometry" />
+          <mxGeometry x="695" y="281" width="78" height="78" as="geometry" />
         </mxCell>
         <mxCell id="5UoT496pi2sTwq1zgijK-19" value="Amazon DynamoDB" style="outlineConnect=0;fontColor=#232F3E;gradientColor=#4D72F3;gradientDirection=north;fillColor=#3334B9;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;" vertex="1" parent="1">
           <mxGeometry x="695" y="511" width="78" height="78" as="geometry" />
@@ -48,10 +46,10 @@
           <mxGeometry x="520" y="511" width="78" height="78" as="geometry" />
         </mxCell>
         <mxCell id="5UoT496pi2sTwq1zgijK-21" value="Amazon Lambda" style="outlineConnect=0;fontColor=#232F3E;gradientColor=#F78E04;gradientDirection=north;fillColor=#D05C17;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" vertex="1" parent="1">
-          <mxGeometry x="520" y="297.5" width="78" height="78" as="geometry" />
+          <mxGeometry x="520" y="281" width="78" height="78" as="geometry" />
         </mxCell>
         <mxCell id="5UoT496pi2sTwq1zgijK-22" value="Amazon API Gateway" style="outlineConnect=0;fontColor=#232F3E;gradientColor=#945DF2;gradientDirection=north;fillColor=#5A30B5;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.api_gateway;" vertex="1" parent="1">
-          <mxGeometry x="358.5" y="297.5" width="78" height="78" as="geometry" />
+          <mxGeometry x="358.5" y="281" width="78" height="78" as="geometry" />
         </mxCell>
         <mxCell id="5UoT496pi2sTwq1zgijK-23" value="Amazon API Gateway" style="outlineConnect=0;fontColor=#232F3E;gradientColor=#945DF2;gradientDirection=north;fillColor=#5A30B5;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.api_gateway;" vertex="1" parent="1">
           <mxGeometry x="358.5" y="511" width="78" height="78" as="geometry" />
