@@ -1,0 +1,218 @@
+Description: >-
+  AWS Project 1 - Creaet two VPC in Primary and Secondary region. 
+  Create subnet group for RDS in both region. 
+  Create a master db in primary region. 
+  create a read replica in standby region.
+Mappings:
+  RegionVpcName:
+    "eu-central-1":
+      VpcName: "primary"
+    "eu-west-3":
+      VpcName: "Secondary"
+  RegionVpcCIDR:
+    "eu-central-1":
+      VpcCIDR: 10.1.0.0/16
+    "eu-west-3":
+      VpcCIDR: 10.2.0.0/16
+  RegionSubnetCIDR:
+    "eu-central-1":
+      SubnetCIDR: 10.1.20.0/24
+    "eu-west-3":
+      SubnetCIDR: 10.2.20.0/24
+  RegionSubnetCIDR2:
+    "eu-central-1":
+      SubnetCIDR2: 10.1.40.0/24
+    "eu-west-3":
+      SubnetCIDR2: 10.2.40.0/24
+Conditions:
+  CreateMasterDB: !Equals [ !Ref 'AWS::Region' , eu-central-1 ]
+  CreateReadReplicaDB: !Equals [ !Ref 'AWS::Region' , eu-west-3 ]
+Resources:
+  VPC1:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      CidrBlock: !FindInMap [ RegionVpcCIDR, !Ref "AWS::Region" , VpcCIDR ]
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+  InternetGateway1:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+  InternetGatewayAttachment1:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      InternetGatewayId: !Ref InternetGateway1
+      VpcId: !Ref VPC1
+  VpcSubnet1:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC1
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
+      CidrBlock: !FindInMap [ RegionSubnetCIDR, !Ref "AWS::Region", SubnetCIDR ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - ${VPCN1} Public Subnet (${AZ1})
+            - VPCN1: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ] 
+              AZ1: !Select [ 0, !GetAZs  '' ]
+  VpcSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC1
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      CidrBlock: !FindInMap [ RegionSubnetCIDR2, !Ref "AWS::Region", SubnetCIDR2 ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - ${VPCN2} Public Subnet (${AZ2})
+            - VPCN2: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ] 
+              AZ2: !Select [ 1, !GetAZs  '' ] 
+  VpcRouteTable1:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - ${RVPCN} Public Routes
+            - RVPCN: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+  VpcIntternetRoute1:
+    Type: 'AWS::EC2::Route'
+    DependsOn: InternetGatewayAttachment1
+    Properties:
+      RouteTableId: !Ref VpcRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway1
+  SubnetRouteTableAssociation1:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref VpcRouteTable1
+      SubnetId: !Ref VpcSubnet1
+  SubnetRouteTableAssociation2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref VpcRouteTable1
+      SubnetId: !Ref VpcSubnet2
+
+#--------------------------------
+# Create VPC Security Group
+#--------------------------------
+  DatabaseSecurityGroup1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Udacity ARR Project - Database Security Group
+      GroupName: UDARR-Database
+      SecurityGroupIngress:
+        -   Description: Application EC2 instances
+            FromPort: 3306
+            IpProtocol: tcp
+            #SourceSecurityGroupId: !Ref ApplicationSecurityGroup
+            ToPort: 3306
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: UDARR-Database
+          Value: !Sub
+        - UDARR-Database-${DBSECURITYNAME}
+        - DBSECURITYNAME: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+
+#--------------------------------
+# Create RDS Subnet Groups
+#--------------------------------
+  rdsDBSubnetGroup1:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub
+        - rds-multi-az-${SGVPCDES}
+        - SGVPCDES: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+      DBSubnetGroupName: !Sub
+        - rds-multi-az-${SGVPCN}
+        - SGVPCN: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+      SubnetIds:
+        - !Ref VpcSubnet1
+        - !Ref VpcSubnet2
+
+#--------------------------------
+# Create Master DB in primary/active region   
+#--------------------------------
+  MasterDB:
+    Type: AWS::RDS::DBInstance
+    Condition: CreateMasterDB
+    DependsOn: rdsDBSubnetGroup1
+    Properties: 
+      AllocatedStorage: 5
+      DBName: udacity
+      Engine: MySQL
+      MasterUsername: awsuser
+      MasterUserPassword: pass.123
+      DBInstanceClass: db.t2.micro
+      MultiAZ: true
+      DBSecurityGroups: DatabaseSecurityGroup1
+      DBSubnetGroupName: !Sub
+        - rds-multi-az-${RDSSGVPCN}
+        - RDSSGVPCN: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+      DeleteAutomatedBackups: true
+      Tags:
+        - Key: Name
+          Value: udacity Master
+
+  # MyKey:
+  #   Type: "AWS::KMS::Key"
+  #   Condition: CreateReadReplicaDB
+  #   Properties:
+  #     KeyPolicy:
+  #       Version: 2012-10-17
+  #       Id: key-default-1
+  #       Statement:
+  #         - Sid: Enable IAM User Permissions
+  #           Effect: Allow
+  #           Principal:
+  #             AWS: !Join
+  #               - ""
+  #               - - "arn:aws:iam::"
+  #                 - !Ref "AWS::AccountId"
+  #                 - ":root"
+  #           Action: "kms:*"
+  #           Resource: "*"          
+#--------------------------------
+# Create Replica in secondary/stand region
+#--------------------------------
+  ReplicaDB:
+    Type: 'AWS::RDS::DBInstance'
+    Condition: CreateMasterDB
+    DependsOn: MasterDB
+    
+    Properties:
+      SourceDBInstanceIdentifier: !Ref MasterDB
+      DBInstanceClass: db.t2.micro
+      SourceRegion: eu-west-3
+      # KmsKeyId: !Ref MyKey
+      Tags: 
+        - Key: Name
+          Value: udacity Read Replica
+
+
+Outputs:
+  VPC:
+    Description: Primary VPC ID
+    Value: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+  Subnet:
+    Description: Primary VPC Subnet ID
+    Value: !Join [ ", ",[!Ref VpcSubnet1, !Ref VpcSubnet2]]
+  MasterDB:
+    Condition: CreateMasterDB
+    Description: RDS Master DB
+    Value: !Ref MasterDB
+    Export: 
+      Name: MasterDB
+  ReplicaDB:
+    Condition: CreateMasterDB
+    Description: RDS Read Replica DB
+    Value: !Ref ReplicaDB

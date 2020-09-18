@@ -19,6 +19,7 @@ Sources
 * https://www.youtube.com/watch?v=k9_9bDZa_EI
 * https://www.youtube.com/watch?v=3K9AzSrCmiQ
 * https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/what-is-cfnstacksets.html
+* https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/stacksets-prereqs-self-managed.html
 * https://www.youtube.com/watch?v=ZzD9I8ur6lg
 
 
@@ -31,6 +32,12 @@ Sources
 3. Create a read replica database in the standby region. This database has the same requirements as the database in the active region.
 
 **SAVE** screenshots of the configuration of the databases in the active and secondary region after they are created. Also, save screenshots of the configuration of the database subnet groups as well as route tables associated with those subnets
+
+**Answer**
+**Burstable performance instances**
+Burstable performance instances, which are T3, T3a, and T2 instances, are designed to provide a baseline level of CPU performance with the ability to burst to a higher level when required by your workload. Burstable performance instances are well suited for a wide range of general-purpose applications.
+
+
 ### Availability Estimate
 
 Write a paragraph or two describing the achievable Recovery Time Objective (RTO) and Recovery Point Objective (RPO) for this Multi-AZ, multi-region database in terms of:

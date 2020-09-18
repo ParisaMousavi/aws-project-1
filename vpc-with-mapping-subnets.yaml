@@ -15,6 +15,11 @@ Mappings:
       SubnetCIDR: 10.1.20.0/24
     "eu-west-3":
       SubnetCIDR: 10.2.20.0/24
+  RegionSubnetCIDR2:
+    "eu-central-1":
+      SubnetCIDR2: 10.1.40.0/24
+    "eu-west-3":
+      SubnetCIDR2: 10.2.40.0/24
 Resources:
   VPC1:
     Type: 'AWS::EC2::VPC'
@@ -40,18 +45,28 @@ Resources:
     Type: 'AWS::EC2::Subnet'
     Properties:
       VpcId: !Ref VPC1
-      AvailabilityZone: !Select 
-        - 0
-        - !GetAZs ''
+      AvailabilityZone: !Select [ 0, !GetAZs  '' ]
       CidrBlock: !FindInMap [ RegionSubnetCIDR, !Ref "AWS::Region", SubnetCIDR ]
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
           Value: !Sub 
-            - '${!FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]} Public Subnet (${AZ1})'
-            - AZ1: !Select 
-                - 0
-                - !GetAZs ''
+            - ${VPCN1} Public Subnet (${AZ1})
+            - VPCN1: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ] 
+              AZ1: !Select [ 0, !GetAZs  '' ]
+  VpcSubnet2:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC1
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      CidrBlock: !FindInMap [ RegionSubnetCIDR2, !Ref "AWS::Region", SubnetCIDR2 ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - ${VPCN2} Public Subnet (${AZ2})
+            - VPCN2: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ] 
+              AZ2: !Select [ 1, !GetAZs  '' ] 
   VpcRouteTable1:
     Type: 'AWS::EC2::RouteTable'
     Properties:
@@ -71,6 +86,11 @@ Resources:
     Properties:
       RouteTableId: !Ref VpcRouteTable1
       SubnetId: !Ref VpcSubnet1
+  SubnetRouteTableAssociation2:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref VpcRouteTable1
+      SubnetId: !Ref VpcSubnet2
 
 
 Outputs:
@@ -79,4 +99,4 @@ Outputs:
     Value: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
   Subnet:
     Description: Primary VPC Subnet ID
-    Value: !Ref VpcSubnet1
+    Value: !Join [ ", ",[!Ref VpcSubnet1, !Ref VpcSubnet2]]
