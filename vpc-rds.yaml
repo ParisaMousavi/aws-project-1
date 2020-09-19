@@ -24,10 +24,18 @@ Mappings:
       SubnetCIDR2: 10.1.40.0/24
     "eu-west-3":
       SubnetCIDR2: 10.2.40.0/24
+  RegionPublicSubnetCIDR:
+    "eu-central-1":
+      SubnetCIDR3: 10.1.60.0/24
+    "eu-west-3":
+      SubnetCIDR3: 10.2.60.0/24
 Conditions:
   CreateMasterDB: !Equals [ !Ref 'AWS::Region' , eu-central-1 ]
   CreateReadReplicaDB: !Equals [ !Ref 'AWS::Region' , eu-west-3 ]
 Resources:
+#--------------------------------
+# Create VPC
+#--------------------------------
   VPC1:
     Type: 'AWS::EC2::VPC'
     Properties:
@@ -37,17 +45,29 @@ Resources:
       Tags:
         - Key: Name
           Value: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+
+#--------------------------------
+# Create InternetGateway
+#--------------------------------
   InternetGateway1:
     Type: 'AWS::EC2::InternetGateway'
     Properties:
       Tags:
         - Key: Name
           Value: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+
+#--------------------------------
+# Attach InternetGateway to VPC
+#--------------------------------
   InternetGatewayAttachment1:
     Type: 'AWS::EC2::VPCGatewayAttachment'
     Properties:
       InternetGatewayId: !Ref InternetGateway1
       VpcId: !Ref VPC1
+
+#--------------------------------
+# Create Subnet1 for VPC (multi-az)
+#--------------------------------
   VpcSubnet1:
     Type: 'AWS::EC2::Subnet'
     Properties:
@@ -58,9 +78,14 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub 
-            - ${VPCN1} Public Subnet (${AZ1})
+            - ${VPCN1} Private Subnet (${AZ1})
             - VPCN1: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ] 
               AZ1: !Select [ 0, !GetAZs  '' ]
+
+
+#--------------------------------
+# Create Subnet2 for VPC (multi-az)
+#--------------------------------
   VpcSubnet2:
     Type: 'AWS::EC2::Subnet'
     Properties:
@@ -71,9 +96,31 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub 
-            - ${VPCN2} Public Subnet (${AZ2})
+            - ${VPCN2} Private Subnet (${AZ2})
             - VPCN2: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ] 
               AZ2: !Select [ 1, !GetAZs  '' ] 
+
+#--------------------------------
+# Create Subnet (public) for VPC (multi-az)
+#--------------------------------
+  PublicSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      VpcId: !Ref VPC1
+      AvailabilityZone: !Select [ 1, !GetAZs  '' ]
+      CidrBlock: !FindInMap [ RegionPublicSubnetCIDR, !Ref "AWS::Region", SubnetCIDR3 ]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 
+            - ${VPCN3} Public Subnet (${AZ3})
+            - VPCN3: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ] 
+              AZ3: !Select [ 1, !GetAZs  '' ] 
+
+
+#--------------------------------
+# Create RouteTable for VPC
+#--------------------------------
   VpcRouteTable1:
     Type: 'AWS::EC2::RouteTable'
     Properties:
@@ -83,6 +130,10 @@ Resources:
           Value: !Sub 
             - ${RVPCN} Public Routes
             - RVPCN: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+
+#--------------------------------
+# Add Route (for internet) to RouteTable & specify the InternetGateway
+#--------------------------------
   VpcIntternetRoute1:
     Type: 'AWS::EC2::Route'
     DependsOn: InternetGatewayAttachment1
@@ -90,19 +141,40 @@ Resources:
       RouteTableId: !Ref VpcRouteTable1
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway1
+  
+#--------------------------------
+# Assign RouteTable to PublicSubnet
+#--------------------------------
   SubnetRouteTableAssociation1:
     Type: 'AWS::EC2::SubnetRouteTableAssociation'
     Properties:
       RouteTableId: !Ref VpcRouteTable1
-      SubnetId: !Ref VpcSubnet1
-  SubnetRouteTableAssociation2:
-    Type: 'AWS::EC2::SubnetRouteTableAssociation'
-    Properties:
-      RouteTableId: !Ref VpcRouteTable1
-      SubnetId: !Ref VpcSubnet2
+      SubnetId: !Ref PublicSubnet
+
 
 #--------------------------------
-# Create VPC Security Group
+# Create VPC Application Security Group
+#--------------------------------
+  ApplicationSecurityGroup1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Udacity ARR Project - Application Security Group
+      GroupName: UDARR-Application
+      SecurityGroupIngress:
+        -   Description: SSH from the Internet
+            FromPort: 22
+            IpProtocol: tcp
+            CidrIp: 0.0.0.0/0
+            ToPort: 22
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: !Sub
+            - UDARR-Application-${APPSECURITYNAME}
+            - APPSECURITYNAME: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+
+#--------------------------------
+# Create VPC Database Security Group
 #--------------------------------
   DatabaseSecurityGroup1:
     Type: AWS::EC2::SecurityGroup
@@ -113,15 +185,14 @@ Resources:
         -   Description: Application EC2 instances
             FromPort: 3306
             IpProtocol: tcp
-            #SourceSecurityGroupId: !Ref ApplicationSecurityGroup
+            SourceSecurityGroupId: !Ref ApplicationSecurityGroup1
             ToPort: 3306
       VpcId: !Ref VPC1
       Tags:
         - Key: Name
-          Value: UDARR-Database
           Value: !Sub
-        - UDARR-Database-${DBSECURITYNAME}
-        - DBSECURITYNAME: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
+            - UDARR-Database-${DBSECURITYNAME}
+            - DBSECURITYNAME: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
 
 #--------------------------------
 # Create RDS Subnet Groups
@@ -148,56 +219,80 @@ Resources:
     DependsOn: rdsDBSubnetGroup1
     Properties: 
       AllocatedStorage: 5
-      DBName: udacity
+      DBName: "udacity"
       Engine: MySQL
       MasterUsername: awsuser
       MasterUserPassword: pass.123
       DBInstanceClass: db.t2.micro
       MultiAZ: true
-      DBSecurityGroups: DatabaseSecurityGroup1
+      VPCSecurityGroups: 
+        - !GetAtt DatabaseSecurityGroup1.GroupId
       DBSubnetGroupName: !Sub
         - rds-multi-az-${RDSSGVPCN}
         - RDSSGVPCN: !FindInMap [ RegionVpcName, !Ref "AWS::Region" , VpcName ]
       DeleteAutomatedBackups: true
       Tags:
         - Key: Name
-          Value: udacity Master
+          Value: "udacity"
 
-  # MyKey:
-  #   Type: "AWS::KMS::Key"
-  #   Condition: CreateReadReplicaDB
-  #   Properties:
-  #     KeyPolicy:
-  #       Version: 2012-10-17
-  #       Id: key-default-1
-  #       Statement:
-  #         - Sid: Enable IAM User Permissions
-  #           Effect: Allow
-  #           Principal:
-  #             AWS: !Join
-  #               - ""
-  #               - - "arn:aws:iam::"
-  #                 - !Ref "AWS::AccountId"
-  #                 - ":root"
-  #           Action: "kms:*"
-  #           Resource: "*"          
+
 #--------------------------------
 # Create Replica in secondary/stand region
 #--------------------------------
-  ReplicaDB:
-    Type: 'AWS::RDS::DBInstance'
-    Condition: CreateMasterDB
-    DependsOn: MasterDB
+  # ReplicaDB:
+  #   Type: 'AWS::RDS::DBInstance'
+  #   Condition: CreateMasterDB
+  #   DependsOn: MasterDB
     
-    Properties:
-      SourceDBInstanceIdentifier: !Ref MasterDB
-      DBInstanceClass: db.t2.micro
-      SourceRegion: eu-west-3
-      # KmsKeyId: !Ref MyKey
-      Tags: 
-        - Key: Name
-          Value: udacity Read Replica
+  #   Properties:
+  #     SourceDBInstanceIdentifier: !Ref MasterDB
+  #     DBInstanceClass: db.t2.micro
+  #     SourceRegion: eu-west-3
+  #     # KmsKeyId: !Ref MyKey
+  #     Tags: 
+  #       - Key: Name
+  #         Value: udacity Read Replica
 
+
+# https://docs.aws.amazon.com/ja_jp/AWSCloudFormation/latest/UserGuide/aws-properties-ec2-instance.html
+# ec2-instance:
+#   Type: AWS::EC2::Instance
+#   Properties: 
+#     InstanceType: t2.micro
+#     KeyName: "udacity-project-1"
+#     NetworkInterfaces: 
+#       - AssociatePublicIpAddress: "true"
+#         DeviceIndex: "0"
+#         GroupSet: 
+#           - Ref: rdsDBSubnetGroup1
+#         SubnetId: 
+#           - !GetAtt VpcSubnet1.Id
+
+  MyKey:
+    Type: "AWS::KMS::Key"
+    Condition: CreateReadReplicaDB
+    Properties:
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: key-default-1
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Join
+                - ""
+                - - "arn:aws:iam::709391560158"
+                  - ":root"
+            Action: "kms:*"
+            Resource: "*"
+  MyDBSmall:
+    Type: "AWS::RDS::DBInstance"
+    Condition: CreateReadReplicaDB
+    Properties:
+      DBInstanceClass: db.t2.micro
+      SourceDBInstanceIdentifier: 
+        - !ImportValue MasterDB
+      KmsKeyId: !Ref MyKey
 
 Outputs:
   VPC:
@@ -212,7 +307,7 @@ Outputs:
     Value: !Ref MasterDB
     Export: 
       Name: MasterDB
-  ReplicaDB:
-    Condition: CreateMasterDB
-    Description: RDS Read Replica DB
-    Value: !Ref ReplicaDB
+  # ReplicaDB:
+  #   Condition: CreateMasterDB
+  #   Description: RDS Read Replica DB
+  #   Value: !Ref ReplicaDB
