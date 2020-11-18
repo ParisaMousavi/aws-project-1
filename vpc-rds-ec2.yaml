@@ -236,31 +236,36 @@ Resources:
         - Key: Name
           Value: "udacity"
 
-  # MyKey:
-  #   Type: "AWS::KMS::Key"
-  #   Condition: CreateReadReplicaDB
-  #   Properties:
-  #     KeyPolicy:
-  #       Version: 2012-10-17
-  #       Id: key-default-1
-  #       Statement:
-  #         - Sid: Enable IAM User Permissions
-  #           Effect: Allow
-  #           Principal:
-  #             AWS: !Join
-  #               - ""
-  #               - - "arn:aws:iam::709391560158"
-  #                 - ":root"
-  #           Action: "kms:*"
-  #           Resource: "*"
-  # MyDBSmall:
-  #   Type: "AWS::RDS::DBInstance"
-  #   Condition: CreateReadReplicaDB
-  #   Properties:
-  #     DBInstanceClass: db.t2.micro
-  #     SourceDBInstanceIdentifier: 
-  #       - !ImportValue MasterDB
-  #     KmsKeyId: !Ref MyKey
+
+#--------------------------------
+# Create NIC for EC2
+#--------------------------------
+  NIC:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      Description: Interface for controlling traffic such as SSH
+      GroupSet: 
+      - !Ref ApplicationSecurityGroup1
+      SourceDestCheck: true
+      Tags:
+        -
+          Key: Network
+          Value: Web
+#--------------------------------
+# Create EC2
+#--------------------------------
+  EC21:
+    Type: AWS::EC2::Instance
+    Condition: CreateMasterDB
+    Properties: 
+      KeyName: "udacity-project-1"
+      InstanceType: t2.micro
+      ImageId: ami-08c148bb835696b45
+      NetworkInterfaces:
+        -
+          NetworkInterfaceId: !Ref NIC
+          DeviceIndex: 0
 
 Outputs:
   VPC:
@@ -269,12 +274,12 @@ Outputs:
   Subnet:
     Description: Primary VPC Subnet ID
     Value: !Join [ ", ",[!Ref VpcSubnet1, !Ref VpcSubnet2]]
-  MasterDB:
-    Condition: CreateMasterDB
-    Description: RDS Master DB
-    Value: !Ref MasterDB
-    Export: 
-      Name: MasterDB
+  # MasterDB:
+  #   Condition: CreateMasterDB
+  #   Description: RDS Master DB
+  #   Value: !Ref MasterDB
+  #   Export: 
+  #     Name: MasterDB
   # ReplicaDB:
   #   Condition: CreateMasterDB
   #   Description: RDS Read Replica DB

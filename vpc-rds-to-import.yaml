@@ -1,0 +1,11 @@
+Description: Import
+Resources:
+#--------------------------------
+# Create Master DB in primary/active region   
+#--------------------------------
+  MasterDB:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Retain
+    Properties: 
+      DBName: "parisa-db"
+      Engine: MySQL
