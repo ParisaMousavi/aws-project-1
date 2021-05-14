@@ -1,1 +1,22 @@
-<mxfile host="app.diagrams.net" modified="2021-05-14T13:24:18.862Z" agent="5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36" version="14.6.13" etag="oVU4XI2uOAs-cagV1xcE" type="github"><diagram id="F1yKoWIHPfsC4B-nsqmL">UzV2zq1wL0osyPDNT0nNUTV2VTV2LsrPL4GwciucU3NyVI0MMlNUjV1UjYwMgFjVyA2HrCFY1qAgsSg1rwSLBiADYTaQg2Y1AA==</diagram></mxfile>
+<mxfile host="app.diagrams.net" modified="2021-05-14T13:27:08.657Z" agent="5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36" etag="XrHXOHECSNi1OSBZAE3l" version="14.6.13" type="github">
+  <diagram id="F1yKoWIHPfsC4B-nsqmL" name="Page-1">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="cntbspe3PkT2Z5j2-Fod-1" value="Secure access &lt;br&gt;to cloud &lt;br&gt;services" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="90" y="310" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="cntbspe3PkT2Z5j2-Fod-2" value="Secure access &lt;br&gt;to cloud &lt;br&gt;infrastructure" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="210" y="310" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="cntbspe3PkT2Z5j2-Fod-3" value="Protecting data &lt;br&gt;stored in &lt;br&gt;the cloud" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="330" y="310" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="cntbspe3PkT2Z5j2-Fod-4" value="Defensive &lt;br&gt;security in &lt;br&gt;the cloud" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="450" y="310" width="120" height="80" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
